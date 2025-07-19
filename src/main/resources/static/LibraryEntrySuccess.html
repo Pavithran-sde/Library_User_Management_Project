@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Document</title>
+</head>
+<body>
+    <h1 id="userDisplay" style="text-align:center; font-size:50px; color:red;"></h1>
+    <h3 id="activity" style="text-align:center; font-size:30px; color:green;"></h3>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get("name");
+        const activity = params.get("activity");
+
+
+// Display or use them as needed
+document.getElementById("userDisplay").textContent = `Welcome, ${name}!`;
+document.getElementById("activity").textContent = `Successfully , ${activity}!`;
+
+    </script>
+
+</body>
+</html>

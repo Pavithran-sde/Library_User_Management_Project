@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Library QR Scan</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        #reader {
+          width: 100%;
+          max-width: 400px;
+          margin: auto;
+        }
+        #status {
+          text-align: center;
+          margin-top: 1rem;
+          font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h2 style="text-align:center;">Scan QR to Enter Library</h2>
+<div id="reader"></div>
+<div id="status">Waiting for scan...</div>
+
+<div id="devicePrompt" style="display:none; text-align:center; margin-top:1rem;">
+    <p>Did you bring any laptop or tablet for studying?</p>
+    <button onclick="handleDeviceResponse(true)">Yes</button>
+    <button onclick="handleDeviceResponse(false)">No</button>
+</div>
+
+<div id="deviceList" style="display:none; text-align:center; margin-top:1rem;"></div>
+
+
+<script>
+    const apiEndpoint = "http://localhost:8080/adminQR/scanLibraryEntryQR"; // Validation and entry api endpoint
+
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader", { fps: 10, qrbox: 250 }
+    );
+
+    html5QrcodeScanner.render(onScanSuccess);
+
+    function onScanSuccess(decodedText) {
+
+        html5QrcodeScanner.clear(); // Stop scanner
+
+        document.getElementById("status").innerText = "QR Scanned. Sending to server...";
+
+        let csrfTokenValue = "";
+        let csrfTokenHeader = "";
+
+        fetch("/securityToken/getCSRFToken")
+            .then(res => res.json())
+            .then(data => {
+            csrfTokenValue = data.token;
+            csrfTokenHeader = data.headerName;
+
+                return fetch(apiEndpoint, {
+                    method: "POST",
+                    headers: {
+                    "Content-Type": "application/json",
+                    [csrfTokenHeader]: csrfTokenValue
+                    },
+                    body: JSON.stringify({ token: decodedText })
+                })
+                .then(async response => {
+                   if (!response.ok) {
+                        let errorMessage = "Something went wrong";
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.message || errorMessage;
+                        } catch (e) {
+                            const text = await response.text(); // fallback if response isn't JSON
+                            errorMessage = text || errorMessage;
+                        }
+                        throw new Error(errorMessage);
+                   }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById("status").innerText = "✅ " + ("Entry recorded successfully. Redirecting...");
+
+                    // Save returned data for device logging
+                    window.libraryUserId = data.user.id;
+                    window.libraryUserName = data.user.name;
+                    window.libraryActivity = data.activity;
+                    window.libraryEntryNo = data.entryNumber;
+
+                        // Device prompting if activity is logging in, else logout
+                        if (window.libraryActivity === "logged In") {
+                            document.getElementById("devicePrompt").style.display = "block";
+                        } else if (window.libraryActivity === "logged out") {
+                            const redirectLogoutUrl = `http://localhost:8080/LibraryExitSuccess.html?name=${encodeURIComponent(window.libraryUserName)}&activity=${encodeURIComponent(window.libraryActivity)}`;
+
+                            document.getElementById("status").innerText = "✅ Processing your logout request. Redirecting...";
+
+                            setTimeout(() => {
+                                window.location.href = redirectLogoutUrl;
+                            }, 2000);
+
+                            return;
+                        }
+
+                })
+                .catch(err => {
+                    document.getElementById("status").innerText = "❌ Error: " + err.message;
+                    html5QrcodeScanner.clear()// stop the scanner
+                    html5QrcodeScanner.render(onScanSuccess); // restart the scanner again
+                });
+
+      });
+    }
+
+    //logic to prompt for asking devices
+    function handleDeviceResponse(bringingDevice) {
+        document.getElementById("devicePrompt").style.display = "none";
+
+          if (!bringingDevice) {
+            const redirectUrl = `http://localhost:8080/LibraryEntrySuccess.html?name=${encodeURIComponent(window.libraryUserName)}&activity=${encodeURIComponent(window.libraryActivity)}`;
+            document.getElementById("status").innerText = "No device logged. Redirecting...";
+            setTimeout(() => window.location.href = redirectUrl, 2000);
+            return;
+          }
+
+      fetch(`/userDevice/getDeviceByUserId/${window.libraryUserId}`)
+        .then(res => {
+            if(!res.ok) throw new Error("No device found. Kindly register a device. Logging is cancelled");
+            return res.json();
+        })
+        .then(devices => {
+
+            let html = "<h3>Select your devices</h3><form id='deviceForm'>";
+            devices.forEach(device => {
+                    html += `
+                    <label>
+                        <input type="checkbox" name="device" value="${device.id}" />
+                        ${device.deviceTypeEnum} - ${device.manufacturer} - ${device.modelName} - ${device.colour}
+                    </label><br/>`;
+                });
+                html += `<br/><button type="submit">Submit</button></form>`;
+
+                document.getElementById("deviceList").innerHTML = html;
+                document.getElementById("deviceList").style.display = "block";
+
+                document.getElementById("deviceForm").addEventListener("submit", submitSelectedDevices);
+        });
+
+    }
+
+    function submitSelectedDevices(e) {
+    e.preventDefault();
+
+    const selected = Array.from(document.querySelectorAll('input[name=device]:checked'))
+                          .map(cb => cb.value);
+
+    if (selected.length === 0) {
+        alert("Please select at least one device.");
+        return;
+    }
+
+    // First, fetch CSRF token ONCE
+    fetch("/securityToken/getCSRFToken")
+        .then(res => res.json())
+        .then(data => {
+            const csrfTokenValue = data.token;
+            const csrfTokenHeader = data.headerName;
+
+            // Now create all fetch requests
+            const requests = selected.map(deviceId => {
+                return fetch('http://localhost:8080/userDeviceLog/addEntry', {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        [csrfTokenHeader]: csrfTokenValue
+                    },
+                    body: JSON.stringify({
+                        "deviceId": deviceId,
+                        "userId": window.libraryUserId,
+                        "libraryEntryNo": window.libraryEntryNo
+                    })
+                });
+            });
+
+            // Wait for all requests to complete
+            return Promise.all(requests);
+        })
+        .then(responses => {
+            // Optional: check for failed responses
+            const failed = responses.filter(r => !r.ok);
+            if (failed.length > 0) {
+                throw new Error("Some devices failed to log.");
+            }
+
+            const redirectUrl = `http://localhost:8080/LibraryEntrySuccess.html?name=${encodeURIComponent(window.libraryUserName)}&activity=${encodeURIComponent(window.libraryActivity)}`;
+            document.getElementById("status").innerText = "✅ Devices logged successfully. Redirecting...";
+            setTimeout(() => window.location.href = redirectUrl, 2000);
+        })
+        .catch(err => {
+            console.error("❌ Device logging failed:", err);
+            alert("Error logging devices: " + err.message);
+        });
+}
+
+</script>
+
+</body>
+</html>

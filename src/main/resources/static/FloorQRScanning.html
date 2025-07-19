@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Floor QR Scan</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        #reader {
+          width: 100%;
+          max-width: 400px;
+          margin: auto;
+        }
+        #status {
+          text-align: center;
+          margin-top: 1rem;
+          font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<h2 style="text-align:center;">Scan QR to Enter Floor</h2>
+<div id="reader"></div>
+<div id="status">Waiting for scan...</div>
+
+<script>
+    const apiEndpoint = "http://localhost:8080/adminQR/scanFloorEntryQR"; // Replace with your actual endpoint
+
+    function onScanSuccess(decodedText) {
+      document.getElementById("status").innerText = "QR Scanned. Sending to server...";
+
+    html5QrcodeScanner.clear(); // Stop scanner
+
+    let csrfTokenValue = "";
+    let csrfTokenHeader = "";
+
+    fetch("/securityToken/getCSRFToken")
+        .then(res => res.json())
+        .then(data => {
+          csrfTokenValue = data.token;
+          csrfTokenHeader = data.headerName;
+
+      return fetch(apiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [csrfTokenHeader]: csrfTokenValue
+        },
+        body: JSON.stringify({ token: decodedText })
+      })
+      .then(async response => {
+             if (!response.ok) {
+              let errorMessage = "Something went wrong";
+               try {
+                const errorData = await response.json();
+                errorMessage = errorData.message || errorMessage;
+                } catch (e) {
+                  const text = await response.text(); // fallback if response isn't JSON
+                  errorMessage = text || errorMessage;
+                }
+                  throw new Error(errorMessage);
+                }
+                    return response.json();
+      })
+      .then(data => {
+      console.log("responseJson : ", data);
+        document.getElementById("status").innerText = "✅ " + ("Entry recorded successfully. Redirecting...");
+        const redirectUrl = `http://localhost:8080/FloorEntrySuccess.html?name=${encodeURIComponent(data.user.name)}&activity=${encodeURIComponent(data.activity)}`;
+        window.location.href = redirectUrl;
+      })
+      .catch(err => {
+        document.getElementById("status").innerText = "❌ Error: " + err.message;
+         html5QrcodeScanner.clear(); // Stop scanner
+         html5QrcodeScanner.render(onScanSuccess);
+      });
+    });
+
+
+    }
+
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader", { fps: 10, qrbox: 250 }
+    );
+
+    html5QrcodeScanner.render(onScanSuccess);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Table Booking Success</title>
+</head>
+<body>
+<table >
+    <tr>
+        <td style = align="center">
+            <img    style="display: block; max-width: 100%; height: auto; width: 100%; border: 0;"
+                    src = "images/TableBookingConfirmed3.png" />
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <h3>Dear {userName},</h3>
+            <p>Thank you for using LibraryUserManagement Application. This Mail is to inform you about your booking for {resource}</p>
+        </td>
+    </tr>
+    <tr>
+        <td><h4>Your Booking Details</h4>  </td>
+    </tr>
+    <tr>
+        <table border="1px"  cellpadding="5px" cellspacing="5px" style = "text-align: center">
+            <tr>
+                <th>UserID</th>
+                <th>TableID</th>
+                <th>Floor</th>
+                <th>Wing</th>
+            </tr>
+            <tr>
+                <td>{userID}</td>
+                <td>{tablesId}</td>
+                <td>{floor_enum}</td>
+                <td>{wing_enum}</td>
+            </tr>
+        </table>
+    </tr>
+</table>
+</body>
+</html>

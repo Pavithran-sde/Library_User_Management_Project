@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Library Logout</title>
+</head>
+<body style = "text-align : center;">
+    <h1 id = "heading" style="font-size:50px; color:red;"></h1>
+    <h3 id = "activity" style=" font-size:30px; color:green;"></h3>
+
+    <script>
+
+        const param = new URLSearchParams(window.location.search);
+        const name = param.get("name");
+        const activity = param.get("activity");
+
+        //setting the html fields
+        document.getElementById("heading").textContent =  `Thank you, ${name}!`;
+        document.getElementById("activity").textContent =  `Successfully logged out, Please Visit Again`;
+    </script>
+
+</body>
+</html>

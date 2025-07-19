@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin QR Exit</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    #user-info, #status {
+     margin-top: 20px;
+     text-align: center;
+   }
+    #scanner {
+         margin-top: 20px;
+         text-align: center;
+         width: 100%;
+         max-width: 400px;
+         margin: auto;
+       }
+   #confirm-btn {
+     margin-top: 10px;
+     padding: 10px 20px;
+     font-size: 16px;
+   }
+   .hidden {
+     display: none;
+   }
+  </style>
+</head>
+<body>
+
+<h1 style="text-align:center;">Library Exit - Admin QR Scanner</h1>
+
+<div id="scanner" style = "text-align: center; width : 400px; height: auto;"></div>
+
+<div id="user-info" class="hidden">
+  <h2>User Info</h2>
+  <p><strong>Name:</strong> <span id="user-name"></span></p>
+  <p><strong>Entry ID:</strong> <span id="entry-id"></span></p>
+  <p><strong>No of Devices:</strong> <span id="no-of-devices"></span></p>
+  <p><strong>Devices:</strong></p>
+  <ul id="device-list"></ul>
+  <button id="confirm-btn">✅ Confirm and Exit User</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+  const scanner = new Html5QrcodeScanner("scanner", { fps: 10, qrbox: 250 });
+
+  function onScanSuccess(qrText) {
+    scanner.clear();
+    document.getElementById("status").innerText = "QR scanned. Validating...";
+
+    fetch("/securityToken/getCSRFToken")
+      .then(res => res.json())
+      .then(tokenData => {
+        return fetch("/adminQR/scanLibraryExitQR", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            [tokenData.headerName]: tokenData.token
+          },
+          body: JSON.stringify({ token: qrText })
+        });
+      })
+      .then(async response => {
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || "Server error");
+        }
+        return response.json();
+      })
+      .then(data => {
+        // Show data
+        document.getElementById("scanner").classList.add("hidden");
+        document.getElementById("user-info").classList.remove("hidden");
+
+        document.getElementById("user-name").textContent = data.user.name;
+        document.getElementById("entry-id").textContent = data.libraryEntryId;
+        document.getElementById("no-of-devices").textContent = data.noOfDevices;
+
+        const deviceList = document.getElementById("device-list");
+        deviceList.innerHTML = "";
+        data.libraryExitDeviceInfoDtoList.forEach(device => {
+          const li = document.createElement("li");
+          li.textContent = `${device.deviceTypeEnum} - Company : ${device.manufacturer} - Model : ${device.modelName} - Colour : (${device.colour}) `;
+          deviceList.appendChild(li);
+        });
+
+
+
+        // Bind confirm button
+        document.getElementById("confirm-btn").onclick = () => {
+          document.getElementById("status").innerText = "Confirming exit...";
+
+
+          fetch("/securityToken/getCSRFToken")
+          .then(res => res.json())
+          .then(csrf => {
+
+           return fetch("/adminQR/makeLibraryExit", {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              [csrf.headerName]: csrf.token
+            },
+            body: JSON.stringify({
+              "libraryEntryId": data.libraryEntryId
+            })
+          })
+          .then(res => {
+            if (!res.ok) throw new Error("Exit confirmation failed");
+            return res.text();
+          })
+          .then(() => {
+            document.getElementById("status").innerText = "✅ Exit confirmed. Ready for next scan.";
+            resetPage();
+          })
+          .catch(err => {
+            document.getElementById("status").innerText = "❌ " + err.message;
+          });
+
+        }).catch(err => {document.getElementById("status").innerHTML = "<p>Something went wrong fetching the CSRF token</p>"});
+        };
+      })
+      .catch(err => {
+        document.getElementById("status").innerText = "❌ " + err.message;
+        setTimeout(() => resetPage(), 3000);
+      });
+  }
+
+  function resetPage() {
+    // Reset everything
+    document.getElementById("user-info").classList.add("hidden");
+    document.getElementById("scanner").classList.remove("hidden");
+    document.getElementById("status").innerText = "";
+    scanner.render(onScanSuccess);
+  }
+
+  // Start scanner on load
+  scanner.render(onScanSuccess);
+</script>
+
+</body>
+</html>

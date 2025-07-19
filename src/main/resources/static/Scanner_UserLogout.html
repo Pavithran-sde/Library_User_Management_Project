@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User QR Exit</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        #content-div{
+          width: 100%;
+          max-width: 400px;
+          margin: auto;
+          }
+    </style>
+</head>
+<body>
+<button id="methodButton" onClick="getLogoutMethod()">Logout</button>
+<h2 id = "heading" style="text-align:center; display:none;" ></h2>
+<div id="content-div"  style = "text-align:center; display:none;" ></div>
+<div id="message" style = "text-align:center; display:none;" ></div>
+
+<script>
+
+    function getLogoutMethod(){
+
+      fetch("/logoutHelper/getLogoutMethod")
+      .then(response =>{
+          if(!response.ok) throw new Error("something went wrong")
+          return response.json();
+      }).then(data =>{
+          if(data.hasDevices === true || data.hasDevices === "true"){
+
+              document.getElementById("methodButton").style.display = "none";
+              //write code to fetch qr from the controller
+
+              const qrToken = data.content;
+
+              fetch("/securityToken/getCSRFToken")
+              .then(res => {
+                  if(!res.ok) throw new Error("Unable to fetch csrf token for getting qr");
+                  return res.json();
+              })
+              .then(csrfdata => {
+                  const csrfTokenHeader = csrfdata.headerName;
+                  const csrfTokenValue = csrfdata.token;
+
+               fetch("/logoutHelper/getQR", {
+                  method: "POST",
+                  headers: {
+                      "Content-Type": "application/json",
+                      [csrfTokenHeader] : csrfTokenValue
+                  },
+                  body : JSON.stringify({"token" : qrToken})
+               })
+              .then(res => {
+                  if(!res.ok) throw new Error("unable to get the exit qr");
+                  return res.json();
+              })
+              .then(data2 => {
+
+                      const pollToken = data2.token;
+
+                  document.getElementById("heading").textContent = "Show the QR to Security's Device";
+                  document.getElementById("content-div").innerHTML = `<img src="${data2.qrImage}" alt="QR Code" />`;
+                  document.getElementById("message").textContent = "This qr is valid only for 10 minutes"
+
+                  document.getElementById("heading").style.display = "block";
+                  document.getElementById("content-div").style.display = "block";
+                  document.getElementById("message").style.display = "block";
+
+                      function pollingForStatus(){
+
+                          fetch("/logoutHelper/checkLogoutStatus", {
+                              method: "POST",
+                              headers: {
+                                  "Content-Type" : "application/json",
+                                  [csrfTokenHeader] : csrfTokenValue
+                              },
+                              body: JSON.stringify({"token" : pollToken})
+                          })
+                          .then(statusRes => {
+                              if(!statusRes.ok){
+
+                                  return statusRes.text().then(text => {
+                                      if(text.includes("Not logged out yet")){
+                                          setTimeout(pollingForStatus, 5000); //poll for every 5 seconds to know logout status
+                                      } else {
+                                          throw new Error("Polling controller throws error");
+                                      }
+                                  })
+                              } else {
+                                  return statusRes.json();
+                              }
+
+                          }).then(statusData => {
+
+                              document.getElementById("heading").textContent = " Successfully logged Out... Redirecting ";
+
+                              const name = statusData.user.name;
+                              const activity = statusData.activity;
+
+                              const redirectLogoutUrl = `http://localhost:8080/LibraryExitSuccess.html?name=${encodeURIComponent(name)}&activity=${encodeURIComponent(activity)}`
+
+                              setTimeout(() => {
+                                  window.location.href = redirectLogoutUrl;
+                              }, 2000);
+
+                              return;
+
+                          }).catch(err => {
+                              document.getElementById("message").innerHTML = `<p>${err}</p>`;
+                          })
+
+                      }
+
+                      pollingForStatus();
+
+                  })
+
+              });
+
+              } else if(data.hasDevices === false || data.hasDevices === "false"){
+
+
+
+                  document.getElementById("heading").textContent = "Scan QR to Exit Library";
+                  document.getElementById("heading").style.display = "block";
+                  document.getElementById("content-div").style.display = "block";
+                  document.getElementById("message").innerHTML = "<p> 📷 Waiting for the QR to Scan </p>";
+                  document.getElementById("message").style.display = "block";
+
+                    // Validation and entry api endpoint
+                  const apiEndpoint = "http://localhost:8080/logoutHelper/scanLibraryExitQR";
+
+                  const html5QrcodeScanner = new Html5QrcodeScanner(
+                  "content-div", { fps: 10, qrbox: 250 }
+                  );
+
+                  html5QrcodeScanner.render(onScanSuccess);
+
+                  function onScanSuccess(decodedText) {
+
+                  html5QrcodeScanner.clear(); // Stop scanner
+
+                  document.getElementById("message").innerHTML = "<p> QR Scanned. Sending to server... </p>";
+
+                  let csrfTokenValue = "";
+                  let csrfTokenHeader = "";
+
+                  fetch("/securityToken/getCSRFToken")
+                      .then(res => res.json())
+                      .then(csrf => {
+                      csrfTokenValue = csrf.token;
+                      csrfTokenHeader = csrf.headerName;
+
+                          return fetch(apiEndpoint, {
+                              method: "POST",
+                              headers: {
+                              "Content-Type": "application/json",
+                              [csrfTokenHeader]: csrfTokenValue
+                              },
+                              body: JSON.stringify({ "token": decodedText,
+                                                      "libraryEntryId" : data.libraryEntryId})
+                          })
+                          .then(async response => {
+                          if (!response.ok) {
+                                  let errorMessage = "Something went wrong";
+                                  try {
+                                      const errorData = await response.json();
+                                      errorMessage = errorData.message || errorMessage;
+                                  } catch (e) {
+                                      const text = await response.text(); // fallback if response isn't JSON
+                                      errorMessage = text || errorMessage;
+                                  }
+                                  throw new Error(errorMessage);
+                              }
+                              return response.json();
+                          })
+                          .then(data3 => {
+                              document.getElementById("message").innerHTML = "<p> ✅  (Exit recorded successfully. Redirecting...) </p> ";
+
+                              window.libraryUserName = data3.user.name;
+                              window.libraryActivity = data3.activity
+                              const redirectLogoutUrl = `http://localhost:8080/LibraryExitSuccess.html?name=${encodeURIComponent(window.libraryUserName)}&activity=${encodeURIComponent(window.libraryActivity)}`;
+
+                              setTimeout(() => {
+                                          window.location.href = redirectLogoutUrl;
+                                      }, 2000);
+
+                                      return;
+
+
+                          })
+                          .catch(err => {
+                              document.getElementById("message").innerHTML= `<p> ❌ Error:  ${err.message} </p>`;
+                          });
+
+                  });
+              }
+          }
+      })
+      .catch(err => {
+              document.getElementById("message").innerHTML = `<p> ❌ Error: ${err.message} </p>`;
+              });
+
+    }
+
+</script>
+
+</body>
+</html>
